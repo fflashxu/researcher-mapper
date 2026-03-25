@@ -57,15 +57,59 @@ async function fetchText(url: string): Promise<string> {
   return emails.length > 0 ? `[EMAILS_FOUND: ${emails.join(', ')}]\n${bodyText}` : bodyText;
 }
 
+// 从 arxiv.org/html/ 版本的 .ltx_authors 里解析 "Name1 ... 1ByteDance 2Peking Univ" 格式
+async function fetchArxivHtmlAffiliations(arxivId: string): Promise<string> {
+  try {
+    const html = await fetchHtml(`https://arxiv.org/html/${arxivId}`);
+    const $ = cheerio.load(html);
+    // 去掉 LaTeX annotation 标签，只保留渲染文本
+    $('annotation').remove();
+    const raw = $('.ltx_authors').text().replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    // 提取末尾的机构映射，如 "1ByteDance 2Peking University"
+    // 格式：数字紧接机构名（大写开头），空格分隔多个
+    const instMap: Record<string, string> = {};
+    const instRegex = /(\d+)([A-Z][A-Za-z &,.()\-]+?)(?=\s*\d+[A-Z]|$)/g;
+    let m: RegExpExecArray | null;
+    while ((m = instRegex.exec(raw)) !== null) {
+      instMap[m[1]] = m[2].trim();
+    }
+    if (Object.keys(instMap).length === 0) return '';
+    // 把作者→机构 对应关系提取出来
+    // 格式：名字后跟数字，如 "Haibin Lin1,∗"
+    const authorInstLines: string[] = [];
+    const authorRegex = /([A-Z][a-z]+(?: [A-Z][a-z]+)+)(\d+)/g;
+    while ((m = authorRegex.exec(raw)) !== null) {
+      const name = m[1].trim();
+      const inst = instMap[m[2]];
+      if (inst) authorInstLines.push(`${name} (${inst})`);
+    }
+    if (authorInstLines.length > 0) {
+      return `Authors with affiliations (from HTML): ${authorInstLines.join('; ')}`;
+    }
+    // 如果逐人解析失败，至少返回机构列表
+    return `All institutions (from HTML): ${Object.values(instMap).join(', ')}`;
+  } catch {
+    return '';
+  }
+}
+
 // arXiv abs page: extract structured fields (title, authors, affiliations, abstract)
 async function fetchArxivStructured(absUrl: string): Promise<string> {
-  const html = await fetchHtml(absUrl);
+  // 提取 arXiv ID，用于访问 HTML 版本
+  const arxivIdMatch = absUrl.match(/arxiv\.org\/abs\/([0-9.]+)/i);
+  const arxivId = arxivIdMatch?.[1] || '';
+
+  const [html, htmlAffil] = await Promise.all([
+    fetchHtml(absUrl),
+    arxivId ? fetchArxivHtmlAffiliations(arxivId) : Promise.resolve(''),
+  ]);
   const $ = cheerio.load(html);
 
   const title = $('h1.title').text().replace('Title:', '').trim()
     || $('meta[name="citation_title"]').attr('content') || '';
 
-  // citation_author meta tags: "LastName, FirstName" format — most reliable
+  // citation_author meta tags: "LastName, FirstName" format
   const authorMetas: string[] = [];
   const institutionMetas: string[] = [];
   $('meta[name="citation_author"]').each((_, el) => {
@@ -78,18 +122,14 @@ async function fetchArxivStructured(absUrl: string): Promise<string> {
   const allInstitutions = [...new Set(institutionMetas.filter(Boolean))];
   const singleInstitution = allInstitutions.length === 1 ? allInstitutions[0] : '';
 
-  // Build "Name (Institution)" lines using meta tags directly
-  // When counts match: pair by index. Otherwise: assign singleInstitution to all, or leave blank.
   const authorLines = authorMetas.map((name, i) => {
-    const inst = institutionMetas[i]                         // exact pair
-      || (singleInstitution ? singleInstitution : '');       // only one org → applies to all
+    const inst = institutionMetas[i] || (singleInstitution ? singleInstitution : '');
     return inst ? `${name} (${inst})` : name;
   });
 
   const abstract = $('blockquote.abstract').text().replace('Abstract:', '').trim()
     || $('meta[name="description"]').attr('content') || '';
 
-  // Fallback: affiliations in HTML table
   const htmlAffiliations = $('td.tablecell.affiliations').text().trim();
 
   const emails: string[] = [];
@@ -100,7 +140,8 @@ async function fetchArxivStructured(absUrl: string): Promise<string> {
 
   return [
     `Paper Title: ${title}`,
-    `Authors with affiliations: ${authorLines.join('; ')}`,
+    // HTML 版本的 affiliation 数据优先级最高（最完整）
+    htmlAffil || `Authors with affiliations: ${authorLines.join('; ')}`,
     allInstitutions.length > 1 ? `All institutions: ${allInstitutions.join(', ')}` : '',
     htmlAffiliations ? `Affiliations: ${htmlAffiliations}` : '',
     `Abstract: ${abstract.slice(0, 800)}`,

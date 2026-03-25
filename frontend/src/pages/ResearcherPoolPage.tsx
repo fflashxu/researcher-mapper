@@ -168,7 +168,7 @@ export default function ResearcherPoolPage() {
           </button>
           {selected.size > 0 && (
             <button onClick={openAddToPool} className="text-sm bg-green-600 text-white rounded-lg px-3 py-1.5 hover:bg-green-700">
-              加入 Pool ({selected.size})
+              Add to Pool ({selected.size})
             </button>
           )}
           {selected.size > 0 && (
@@ -398,14 +398,14 @@ export default function ResearcherPoolPage() {
         </div>
       )}
 
-      {/* 加入 Pool 弹窗 */}
+      {/* Add to Pool modal */}
       {addToPoolOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold mb-1">加入 Pool</h2>
-            <p className="text-sm text-gray-500 mb-4">已选 {selected.size} 位研究员，选择要加入的 Pool：</p>
+            <h2 className="text-lg font-semibold mb-1">Add to Pool</h2>
+            <p className="text-sm text-gray-500 mb-4">{selected.size} researchers selected. Choose a pool:</p>
             <div className="space-y-2 max-h-72 overflow-y-auto">
-              {allProjects.length === 0 && <p className="text-sm text-gray-400">暂无 Project</p>}
+              {allProjects.length === 0 && <p className="text-sm text-gray-400">No projects yet</p>}
               {allProjects.map(proj => (
                 <div key={proj.id}>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 mt-2">{proj.name}</p>
@@ -414,20 +414,20 @@ export default function ResearcherPoolPage() {
                       <input type="radio" name="pool" value={job.id} checked={selectedJobId === job.id}
                         onChange={() => setSelectedJobId(job.id)} className="accent-blue-600" />
                       <span className="text-sm text-gray-800 truncate">{job.poolName || job.paperTitle || job.paperUrl}</span>
-                      <span className="text-xs text-gray-400 ml-auto shrink-0">{job.researchersFound} 人</span>
+                      <span className="text-xs text-gray-400 ml-auto shrink-0">{job.researchersFound}</span>
                     </label>
                   ))}
                   {proj.jobs.filter(j => j.status === 'DONE').length === 0 && (
-                    <p className="text-xs text-gray-400 pl-2">无可用 Pool</p>
+                    <p className="text-xs text-gray-400 pl-2">No pools available</p>
                   )}
                 </div>
               ))}
             </div>
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setAddToPoolOpen(false)} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+              <button onClick={() => setAddToPoolOpen(false)} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Cancel</button>
               <button onClick={handleAddToPool} disabled={!selectedJobId || addToPoolLoading}
                 className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40">
-                {addToPoolLoading ? '加入中…' : '确认加入'}
+                {addToPoolLoading ? 'Adding…' : 'Confirm'}
               </button>
             </div>
           </div>
