@@ -46,11 +46,12 @@ export async function getResearcher(id: string) {
 
 export async function createResearcher(data: any) {
   const dedupeKey = makeDedupeKey(data.email, data.firstName, data.lastName, data.currentOrg);
-  // Upsert: if same dedupeKey exists, update instead of create
+  // Upsert: 新建时写入 sourceUrl，更新时不覆盖（保留第一次出现的来源 paper）
+  const { sourceUrl, ...updateData } = data;
   return prisma.researcher.upsert({
     where: { dedupeKey },
     create: { ...data, dedupeKey },
-    update: data,
+    update: updateData,
   });
 }
 
@@ -66,19 +67,22 @@ export async function deleteResearcher(id: string) {
   await prisma.researcher.delete({ where: { id } });
 }
 
-export async function bulkCreate(researchers: any[]) {
-  const results = { created: 0, updated: 0, errors: [] as string[] };
+export async function bulkCreate(researchers: any[]): Promise<{ created: number; updated: number; errors: string[]; savedIds: string[] }> {
+  const results = { created: 0, updated: 0, errors: [] as string[], savedIds: [] as string[] };
   for (const r of researchers) {
     try {
       const dedupeKey = makeDedupeKey(r.email, r.firstName, r.lastName, r.currentOrg);
+      const { sourceUrl, ...updateData } = r;
       const existing = await prisma.researcher.findUnique({ where: { dedupeKey } });
+      let saved: any;
       if (existing) {
-        await prisma.researcher.update({ where: { dedupeKey }, data: r });
+        saved = await prisma.researcher.update({ where: { dedupeKey }, data: updateData });
         results.updated++;
       } else {
-        await prisma.researcher.create({ data: { ...r, dedupeKey } });
+        saved = await prisma.researcher.create({ data: { ...r, dedupeKey } });
         results.created++;
       }
+      results.savedIds.push(saved.id);
     } catch (e: any) {
       results.errors.push(`${r.firstName} ${r.lastName}: ${e.message}`);
     }

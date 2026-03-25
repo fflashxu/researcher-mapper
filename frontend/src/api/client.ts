@@ -26,6 +26,7 @@ export const projectsApi = {
   delete: (id: string) => api.delete(`/api/projects/${id}`),
   updatePoolName: (jobId: string, poolName: string) => api.patch(`/api/projects/pools/${jobId}`, { poolName }),
   getPoolResearchers: (jobId: string) => api.get(`/api/projects/pools/${jobId}/researchers`),
+  addResearchersToPool: (jobId: string, researcherIds: string[]) => api.post(`/api/projects/pools/${jobId}/researchers`, { researcherIds }),
 };
 
 export const exportApi = {

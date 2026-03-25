@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectsApi, extractApi } from '../api/client';
+import { projectsApi, extractApi, researchersApi } from '../api/client';
 import type { Project, ExtractionJob, Researcher } from '../types';
+import { STATUSES, PRIORITIES } from '../types';
 
 function safeJson(val?: string): string[] {
   if (!val) return [];
@@ -25,16 +26,16 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [urls, setUrls] = useState('');
   const [extracting, setExtracting] = useState(false);
-  const [selectedPool, setSelectedPool] = useState<string | null>(null); // jobId or null = all
+  const [selectedPool, setSelectedPool] = useState<string | null>(null);
   const [poolResearchers, setPoolResearchers] = useState<Researcher[]>([]);
   const [poolJob, setPoolJob] = useState<ExtractionJob | null>(null);
-  const [editingPoolName, setEditingPoolName] = useState<string | null>(null); // jobId being renamed
+  const [editingPoolName, setEditingPoolName] = useState<string | null>(null);
   const [poolNameDraft, setPoolNameDraft] = useState('');
+  const [editing, setEditing] = useState<Researcher | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { load(); }, [id]);
 
-  // Poll any running jobs
   useEffect(() => {
     if (!project) return;
     const hasRunning = project.jobs.some(j => j.status === 'PENDING' || j.status === 'RUNNING');
@@ -51,6 +52,11 @@ export default function ProjectDetailPage() {
     if (!id) return;
     const res = await projectsApi.get(id);
     setProject(res.data);
+  }
+
+  async function loadPool(jobId: string) {
+    const res = await projectsApi.getPoolResearchers(jobId);
+    setPoolResearchers(res.data.researchers);
   }
 
   async function handleExtract() {
@@ -88,6 +94,50 @@ export default function ProjectDetailPage() {
     setPoolResearchers(res.data.researchers);
   }
 
+  function openEdit(r: Researcher) {
+    setEditing({
+      ...r,
+      researchAreas: safeJson(r.researchAreas).join(', ') || '',
+      previousCompanies: safeJson(r.previousCompanies).join(', ') || '',
+    } as any);
+  }
+
+  async function handleSaveEdit() {
+    if (!editing) return;
+    const toJsonArray = (val: string | null | undefined) => {
+      if (!val) return '[]';
+      try { JSON.parse(val); return val; } catch { /**/ }
+      return JSON.stringify(val.split(',').map(s => s.trim()).filter(Boolean));
+    };
+    const e = editing as any;
+    const payload = {
+      firstName: e.firstName || null,
+      lastName: e.lastName || null,
+      nameCN: e.nameCN || null,
+      email: e.email || null,
+      currentOrg: e.currentOrg || null,
+      jobTitle: e.jobTitle || null,
+      team: e.team || null,
+      seniority: e.seniority || null,
+      education: e.education || null,
+      googleScholar: e.googleScholar || null,
+      github: e.github || null,
+      linkedin: e.linkedin || null,
+      homepage: e.homepage || null,
+      maimai: e.maimai || null,
+      openreview: e.openreview || null,
+      contact: e.contact || null,
+      notes: e.notes || null,
+      status: e.status,
+      priority: e.priority,
+      researchAreas: toJsonArray(e.researchAreas),
+      previousCompanies: toJsonArray(e.previousCompanies),
+    };
+    await researchersApi.update(editing.id, payload);
+    setEditing(null);
+    if (selectedPool) loadPool(selectedPool);
+  }
+
   if (!project) return <div className="flex items-center justify-center h-64 text-gray-400">Loading…</div>;
 
   return (
@@ -105,7 +155,6 @@ export default function ProjectDetailPage() {
       <div className="grid grid-cols-[320px_1fr] gap-6">
         {/* LEFT: Pools list + add paper */}
         <div>
-          {/* Add paper URLs */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Add Papers</p>
             <textarea value={urls} onChange={e => setUrls(e.target.value)}
@@ -118,7 +167,6 @@ export default function ProjectDetailPage() {
             </button>
           </div>
 
-          {/* Pool list */}
           <div className="space-y-2">
             {project.jobs.length === 0 && (
               <p className="text-sm text-gray-400 text-center py-6">No papers yet — add one above</p>
@@ -168,24 +216,25 @@ export default function ProjectDetailPage() {
         <div>
           {!selectedPool ? (
             <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-200 rounded-xl text-gray-400">
-              <p className="text-sm">← Click a pool to view its researchers</p>
+              <p className="text-sm">← 点击左侧 Pool 查看研究员</p>
             </div>
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-gray-700">
-                  {poolJob?.paperTitle || 'Pool'} · {poolResearchers.length} researchers
+                  {poolJob?.paperTitle || 'Pool'} · {poolResearchers.length} 人
                 </h2>
               </div>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">Name</th>
-                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">Org</th>
-                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">Research Areas</th>
-                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">Email</th>
-                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">Profiles</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">姓名</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">机构</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">研究方向</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">邮箱</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs">主页</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-600 text-xs"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -212,10 +261,13 @@ export default function ProjectDetailPage() {
                             {r.homepage && <a href={r.homepage} target="_blank" rel="noreferrer" className="text-purple-500 hover:text-purple-700 text-xs font-medium">HP</a>}
                           </div>
                         </td>
+                        <td className="px-4 py-2.5">
+                          <button onClick={() => openEdit(r)} className="text-blue-500 hover:text-blue-700 text-xs">编辑</button>
+                        </td>
                       </tr>
                     ))}
                     {poolResearchers.length === 0 && (
-                      <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">No researchers in this pool</td></tr>
+                      <tr><td colSpan={6} className="text-center py-8 text-gray-400 text-sm">该 Pool 暂无研究员</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -224,6 +276,96 @@ export default function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Edit Modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-5">编辑研究员</h2>
+
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">基本信息</p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {(['firstName','lastName','nameCN','email'] as const).map(f => (
+                <div key={f}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{f}</label>
+                  <input value={(editing as any)[f] || ''} onChange={e => setEditing({ ...editing, [f]: e.target.value } as any)}
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {(['currentOrg','jobTitle','team','seniority','education'] as const).map(f => (
+                <div key={f}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{f}</label>
+                  <input value={(editing as any)[f] || ''} onChange={e => setEditing({ ...editing, [f]: e.target.value } as any)}
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">主页链接</p>
+            <div className="space-y-2 mb-4">
+              {(['googleScholar','github','linkedin','homepage','maimai','openreview'] as const).map(f => (
+                <div key={f} className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-600 w-28 shrink-0">{f}</label>
+                  <input value={(editing as any)[f] || ''} onChange={e => setEditing({ ...editing, [f]: e.target.value } as any)}
+                    placeholder="https://..."
+                    className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono" />
+                  {(editing as any)[f] && (
+                    <a href={(editing as any)[f]} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:text-blue-700 shrink-0">↗</a>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">研究方向</p>
+            <div className="space-y-2 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">researchAreas <span className="text-gray-400 font-normal">（逗号分隔：RL, Infra…）</span></label>
+                <input value={(editing as any).researchAreas || ''} onChange={e => setEditing({ ...editing, researchAreas: e.target.value } as any)}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">previousCompanies <span className="text-gray-400 font-normal">（逗号分隔）</span></label>
+                <input value={(editing as any).previousCompanies || ''} onChange={e => setEditing({ ...editing, previousCompanies: e.target.value } as any)}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">状态 & 备注</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">状态</label>
+                <select value={editing.status} onChange={e => setEditing({ ...editing, status: e.target.value })}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm">
+                  {STATUSES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">优先级</label>
+                <select value={editing.priority} onChange={e => setEditing({ ...editing, priority: e.target.value })}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm">
+                  {PRIORITIES.map(p => <option key={p}>{p}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2 mb-5">
+              {(['contact','notes'] as const).map(f => (
+                <div key={f}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{f}</label>
+                  <input value={(editing as any)[f] || ''} onChange={e => setEditing({ ...editing, [f]: e.target.value } as any)}
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+              <button onClick={handleSaveEdit} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

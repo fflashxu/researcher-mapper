@@ -32,3 +32,8 @@ projectsRouter.patch('/pools/:jobId', async (req: Request, res: Response, next: 
 projectsRouter.get('/pools/:jobId/researchers', async (req: Request, res: Response, next: NextFunction) => {
   try { res.json(await svc.getPoolResearchers(req.params.jobId)); } catch (e) { next(e); }
 });
+
+// POST /api/projects/pools/:jobId/researchers  { researcherIds: string[] }
+projectsRouter.post('/pools/:jobId/researchers', async (req: Request, res: Response, next: NextFunction) => {
+  try { res.json(await svc.addResearchersToPool(req.params.jobId, req.body.researcherIds)); } catch (e) { next(e); }
+});

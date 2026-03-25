@@ -562,9 +562,18 @@ async function runExtraction(jobId: string, paperUrl: string) {
     const { bulkCreate } = await import('../researchers/researchers.service');
     const result = await bulkCreate(extracted);
 
+    // 写入 ResearcherPool 关联表（多对多）
+    for (const researcherId of result.savedIds) {
+      await (prisma as any).researcherPool.upsert({
+        where: { researcherId_jobId: { researcherId, jobId } },
+        create: { researcherId, jobId },
+        update: {},
+      });
+    }
+
     await (prisma.extractionJob as any).update({
       where: { id: jobId },
-      data: { status: 'DONE', researchersFound: result.created + result.updated, paperTitle: paperTitle || null },
+      data: { status: 'DONE', researchersFound: result.savedIds.length, paperTitle: paperTitle || null },
     });
   } catch (e: any) {
     await prisma.extractionJob.update({

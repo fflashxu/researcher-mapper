@@ -57,13 +57,32 @@ export async function updatePoolName(jobId: string, poolName: string) {
   return (prisma as any).extractionJob.update({ where: { id: jobId }, data: { poolName } });
 }
 
-// Get researchers for a specific pool (filtered by sourceUrl = job.paperUrl)
+// Get researchers for a specific pool via ResearcherPool junction table
 export async function getPoolResearchers(jobId: string) {
-  const job = await prisma.extractionJob.findUnique({ where: { id: jobId } });
+  const job = await (prisma as any).extractionJob.findUnique({ where: { id: jobId } });
   if (!job) throw new NotFoundError();
-  const researchers = await prisma.researcher.findMany({
-    where: { sourceUrl: job.paperUrl },
-    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+  const links = await (prisma as any).researcherPool.findMany({
+    where: { jobId },
+    include: { researcher: true },
+    orderBy: [{ researcher: { firstName: 'asc' } }, { researcher: { lastName: 'asc' } }],
   });
+  const researchers = links.map((l: any) => l.researcher);
   return { job, researchers };
+}
+
+// 将指定研究员批量加入某个 Pool
+export async function addResearchersToPool(jobId: string, researcherIds: string[]) {
+  const job = await (prisma as any).extractionJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new NotFoundError();
+  for (const researcherId of researcherIds) {
+    await (prisma as any).researcherPool.upsert({
+      where: { researcherId_jobId: { researcherId, jobId } },
+      create: { researcherId, jobId },
+      update: {},
+    });
+  }
+  // 同步更新 researchersFound
+  const count = await (prisma as any).researcherPool.count({ where: { jobId } });
+  await (prisma as any).extractionJob.update({ where: { id: jobId }, data: { researchersFound: count } });
+  return { added: researcherIds.length };
 }

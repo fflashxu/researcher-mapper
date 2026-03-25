@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { researchersApi, exportApi } from '../api/client';
-import type { Researcher, ResearcherListResponse } from '../types';
+import { researchersApi, exportApi, projectsApi } from '../api/client';
+import type { Researcher, ResearcherListResponse, Project } from '../types';
 import { STATUSES, PRIORITIES } from '../types';
 
 function safeJson(val?: string): string[] {
@@ -22,6 +22,10 @@ export default function ResearcherPoolPage() {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushResult, setPushResult] = useState<any>(null);
   const [reEnrichStatus, setReEnrichStatus] = useState<string | null>(null);
+  const [addToPoolOpen, setAddToPoolOpen] = useState(false);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState('');
+  const [addToPoolLoading, setAddToPoolLoading] = useState(false);
 
   const load = useCallback(async () => {
     const res = await researchersApi.list({
@@ -55,16 +59,34 @@ export default function ResearcherPoolPage() {
 
   async function handleSaveEdit() {
     if (!editing) return;
-    // Convert comma-separated strings back to JSON arrays for array fields
     const toJsonArray = (val: string | null | undefined) => {
       if (!val) return '[]';
-      try { JSON.parse(val); return val; } catch { /* not JSON, treat as CSV */}
+      try { JSON.parse(val); return val; } catch { /**/ }
       return JSON.stringify(val.split(',').map(s => s.trim()).filter(Boolean));
     };
+    const e = editing as any;
     const payload = {
-      ...editing,
-      researchAreas: toJsonArray((editing as any).researchAreas),
-      previousCompanies: toJsonArray((editing as any).previousCompanies),
+      firstName: e.firstName || null,
+      lastName: e.lastName || null,
+      nameCN: e.nameCN || null,
+      email: e.email || null,
+      currentOrg: e.currentOrg || null,
+      jobTitle: e.jobTitle || null,
+      team: e.team || null,
+      seniority: e.seniority || null,
+      education: e.education || null,
+      googleScholar: e.googleScholar || null,
+      github: e.github || null,
+      linkedin: e.linkedin || null,
+      homepage: e.homepage || null,
+      maimai: e.maimai || null,
+      openreview: e.openreview || null,
+      contact: e.contact || null,
+      notes: e.notes || null,
+      status: e.status,
+      priority: e.priority,
+      researchAreas: toJsonArray(e.researchAreas),
+      previousCompanies: toJsonArray(e.previousCompanies),
     };
     await researchersApi.update(editing.id, payload);
     setEditing(null);
@@ -78,6 +100,22 @@ export default function ResearcherPoolPage() {
     const a = document.createElement('a');
     a.href = url; a.download = 'researchers.csv'; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function openAddToPool() {
+    const res = await projectsApi.list();
+    setAllProjects(res.data);
+    setSelectedJobId('');
+    setAddToPoolOpen(true);
+  }
+
+  async function handleAddToPool() {
+    if (!selectedJobId || selected.size === 0) return;
+    setAddToPoolLoading(true);
+    await projectsApi.addResearchersToPool(selectedJobId, [...selected]);
+    setAddToPoolLoading(false);
+    setAddToPoolOpen(false);
+    setSelected(new Set());
   }
 
   async function handleReEnrich() {
@@ -128,6 +166,11 @@ export default function ResearcherPoolPage() {
           <button onClick={handleExportCsv} className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50">
             Export CSV {selected.size > 0 ? `(${selected.size})` : '(all)'}
           </button>
+          {selected.size > 0 && (
+            <button onClick={openAddToPool} className="text-sm bg-green-600 text-white rounded-lg px-3 py-1.5 hover:bg-green-700">
+              加入 Pool ({selected.size})
+            </button>
+          )}
           {selected.size > 0 && (
             <button onClick={() => { setPushOpen(true); setPushResult(null); }} className="text-sm bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700">
               Push to Icebreaker ({selected.size})
@@ -350,6 +393,42 @@ export default function ResearcherPoolPage() {
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">Cancel</button>
               <button onClick={handleSaveEdit} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 加入 Pool 弹窗 */}
+      {addToPoolOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold mb-1">加入 Pool</h2>
+            <p className="text-sm text-gray-500 mb-4">已选 {selected.size} 位研究员，选择要加入的 Pool：</p>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {allProjects.length === 0 && <p className="text-sm text-gray-400">暂无 Project</p>}
+              {allProjects.map(proj => (
+                <div key={proj.id}>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 mt-2">{proj.name}</p>
+                  {proj.jobs.filter(j => j.status === 'DONE').map(job => (
+                    <label key={job.id} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer border transition ${selectedJobId === job.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
+                      <input type="radio" name="pool" value={job.id} checked={selectedJobId === job.id}
+                        onChange={() => setSelectedJobId(job.id)} className="accent-blue-600" />
+                      <span className="text-sm text-gray-800 truncate">{job.poolName || job.paperTitle || job.paperUrl}</span>
+                      <span className="text-xs text-gray-400 ml-auto shrink-0">{job.researchersFound} 人</span>
+                    </label>
+                  ))}
+                  {proj.jobs.filter(j => j.status === 'DONE').length === 0 && (
+                    <p className="text-xs text-gray-400 pl-2">无可用 Pool</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setAddToPoolOpen(false)} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">取消</button>
+              <button onClick={handleAddToPool} disabled={!selectedJobId || addToPoolLoading}
+                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40">
+                {addToPoolLoading ? '加入中…' : '确认加入'}
+              </button>
             </div>
           </div>
         </div>
