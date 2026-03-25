@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// One row per researcher. Array fields stored as JSON strings (SQLite limitation).
+model Researcher {
+  id                String   @id @default(uuid())
+
+  // Identity
+  firstName         String?
+  lastName          String?
+  nameCN            String?
+  email             String?
+
+  // Professional
+  currentOrg        String?
+  jobTitle          String?
+  team              String?
+  researchAreas     String?  // JSON: string[]  e.g. ["Infra","RL"]
+  seniority         String?  // "Research Scientist" | "Staff RS" | "Principal" | ...
+
+  // Background
+  education         String?  // e.g. "PhD @ CMU, BS @ Berkeley"
+  previousCompanies String?  // JSON: string[]  e.g. ["Google(3y)","Meta(2y)"]
+  yearsAtCurrent    Int?
+
+  // Links
+  googleScholar     String?
+  github            String?
+  linkedin          String?
+  maimai            String?
+  openreview        String?
+  homepage          String?
+
+  // Contact
+  contact           String?  // WeChat / phone (non-email)
+
+  // Workflow state
+  status            String   @default("未接触")  // 未接触 | 已联系 | 合作中 | 不适合
+  priority          String   @default("中")      // 高 | 中 | 低
+  notes             String?
+  sourceUrl         String?  // paper URL this researcher was found from
+
+  // Deduplication
+  dedupeKey         String?  @unique  // email if available, else hash(name+company)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  papers            ResearcherPaper[]
+
+  @@index([currentOrg])
+  @@index([status])
+  @@index([priority])
+}
+
+model Paper {
+  id            String   @id @default(uuid())
+  title         String
+  url           String   @unique
+  venue         String?
+  year          Int?
+  abstract      String?
+  directionTags String?  // JSON: string[]
+
+  createdAt     DateTime @default(now())
+
+  researchers   ResearcherPaper[]
+}
+
+// Many-to-many: Researcher <-> Paper
+model ResearcherPaper {
+  researcherId  String
+  paperId       String
+  researcher    Researcher @relation(fields: [researcherId], references: [id], onDelete: Cascade)
+  paper         Paper      @relation(fields: [paperId], references: [id], onDelete: Cascade)
+
+  @@id([researcherId, paperId])
+}
+
+// Singleton app settings (id always = "default")
+model Settings {
+  id            String  @id @default("default")
+  dashscopeKey  String?
+  serperKey     String?
+}
+
+// A named research project that groups multiple paper extractions (pools)
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  jobs        ExtractionJob[]
+}
+
+// Tracks the status of an async extraction job (one per paper URL = one Pool)
+model ExtractionJob {
+  id               String   @id @default(uuid())
+  projectId        String?
+  paperUrl         String
+  paperTitle       String?  // auto-extracted from page
+  poolName         String?  // user-editable name (defaults to paperTitle)
+  status           String   @default("PENDING")  // PENDING | RUNNING | DONE | FAILED
+  researchersFound Int      @default(0)
+  error            String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  project          Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
